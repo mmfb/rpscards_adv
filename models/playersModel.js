@@ -148,26 +148,33 @@ module.exports.endTurn = async function (pmId) {
             // change state of opponent to PlayCard
             await pool.query(sqlUpState, [1, opponent.pm_id]);
         } else if (opponent.pm_state_id == 3) { // if both have ended the turn 
-            // delete all cards that died from both players in the match
-            // Cards on the hand have full HP so no need to check the card position
-            let sqlDeck = `delete from deck 
+                
+            // Check for end game condition
+            if (opponent.pm_hp <= 0 || player.pm_hp <= 0) {
+                let sqlEnd = `Update match set mt_finished = true
+                            Where mt_id = $1`;
+                await pool.query(sqlEnd, [matchId]);
+                return { status: 200, result: { msg: "Game Ended" } };
+            } else {
+                // increment turn count
+                let sqlTurn = `update match set mt_turn = mt_turn + 1   
+                               where mt_id = $1`;
+                await pool.query(sqlTurn, [matchId]);
+                // delete all cards that died from both players in the match
+                // Cards on the hand have full HP so no need to check the card position
+                let sqlDeck = `delete from deck 
                            where (deck_pm_id = $1 or deck_pm_id = $2)  
                            and deck_card_hp <= 0`;
-            await pool.query(sqlDeck, [pmId, opponent.pm_id]);
-            // change state of player to Wait (opponent will go first this time)
-            await pool.query(sqlUpState, [4, pmId]);
-            // change state of opponent to PlayCard
-            await pool.query(sqlUpState, [1, opponent.pm_id]);
+                await pool.query(sqlDeck, [pmId, opponent.pm_id]);
+                // change state of player to Wait (opponent will go first this time)
+                await pool.query(sqlUpState, [4, pmId]);
+                // change state of opponent to PlayCard
+                await pool.query(sqlUpState, [1, opponent.pm_id]);
+            } 
         } else {
             return { status: 500, result: { msg: "Current state of the players in the match is not valid" } }
         }
-        // Check for end game condition
-        if (opponent.pm_hp <= 0 || player.pm_hp <= 0) {
-            let sqlEnd = `Update match set mt_finished = true
-                          Where mt_id = $1`;
-            await pool.query(sqlEnd, [matchId]);
-            return { status: 200, result: { msg: "Game Ended" } };
-        }
+     
         // get a new card for the next player playing (the opponent)
         // get random card value
         let sqlRandCard = `Select crd_id from card 
@@ -179,7 +186,7 @@ module.exports.endTurn = async function (pmId) {
         let sqlInsert = `Insert into deck (deck_pm_id,deck_pos_id,deck_card_id,deck_card_hp)
                             values ($1, 1, $2, 4)`;
         await pool.query(sqlInsert, [opponent.pm_id, cardId]);
-
+        
         return { status: 200, result: { msg: "Turn ended" } };
     } catch (err) {
         console.log(err);

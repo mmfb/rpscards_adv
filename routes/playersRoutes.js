@@ -82,8 +82,4 @@ router.get('/:pId/matches/:mId/playermatches/:pmId/opponent', async function(req
   res.status(result.status).send(result.result);
 });
 
-
-
-
-
 module.exports = router;
