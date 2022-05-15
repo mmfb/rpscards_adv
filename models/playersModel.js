@@ -1,5 +1,19 @@
 var pool = require('./connection.js')
 
+// This probably would make more sense in a matchesModel (and probably some other)
+module.exports.getPlayersOfMatch = async function (mId) {
+    try {
+        let sqlCheck = `select * from playermatch
+                        where pm_match_id = $1`;
+        let resCheck = await pool.query(sqlCheck, [mId]);
+        return { status: 200, result: resCheck.rows };
+    } catch (err) {
+        console.log(err);
+        return { status: 500, result: err };
+    }
+}
+
+
 module.exports.getMatchOfPlayer = async function (pmId) {
     try {
         let sqlCheck = `select * from match,playermatch
@@ -177,15 +191,7 @@ module.exports.endTurn = async function (pmId) {
      
         // get a new card for the next player playing (the opponent)
         // get random card value
-        let sqlRandCard = `Select crd_id from card 
-                            order by RANDOM() 
-                            LIMIT 1`;
-        let resRandCard = await pool.query(sqlRandCard);
-        let cardId = resRandCard.rows[0].crd_id;
-        // insert card in the opponent deck (hand, random type, 4 hp)
-        let sqlInsert = `Insert into deck (deck_pm_id,deck_pos_id,deck_card_id,deck_card_hp)
-                            values ($1, 1, $2, 4)`;
-        await pool.query(sqlInsert, [opponent.pm_id, cardId]);
+        this.createRandomCards(opponent.pm_id,1);
         
         return { status: 200, result: { msg: "Turn ended" } };
     } catch (err) {
@@ -396,12 +402,126 @@ module.exports.login = async function (username,password) {
 }
 
 
-module.exports.getPlayerMatches = async function (pId) {
+module.exports.register = async function (username,password) {
     try {
-        let sql = `Select * from playermatch 
-                    where pm_player_id = $1`;
+        if (password.length < 8 || username < 4) 
+            return { status: 400, 
+                result: {msg: "Username must have at least 4 characters and password at least 8"} };
+    
+        let sql = `Select ply_name from player 
+                   where ply_name = $1`;
+        let result = await pool.query(sql, [username]);
+        if (result.rows.length > 0) 
+            return { status: 400, result: {msg: "That player name is already in use."} };
+        
+        sql = `Insert into player(ply_name,ply_passwd) values($1,$2)`;
+        await pool.query(sql, [username,password]);
+        return { status: 200, result: { msg: "Player created" } };
+    } catch (err) {
+        console.log(err);
+        return { status: 500, result: err };
+    }
+}
+
+module.exports.getPlayersAndMatchesWaiting =  async function (pId) {
+    try {
+        let sql = `select mt_id, pm_id, ply_name from playermatch,match, player
+                   where pm_match_id = mt_id and mt_finished = false and
+                   ply_id = pm_player_id and
+                   (select count(*) from playermatch where pm_match_id = mt_id) = 1`
+        let res = await pool.query(sql);
+        return {status:200, result: res.rows};
+    } catch (err) {
+        console.log(err);
+        return { status: 500, result: err };
+    }
+
+}
+
+module.exports.getPlayerActiveMatches = async function (pId) {
+    try {
+        let sql = `Select * from playermatch, match 
+                    where pm_match_id = mt_id 
+                    and mt_finished = false and pm_player_id = $1`;
         let result = await pool.query(sql, [pId]);
         return { status: 200, result: result.rows };
+    } catch (err) {
+        console.log(err);
+        return { status: 500, result: err };
+    }
+}
+
+
+module.exports.createRandomCards = async function (pmId,nCards) {
+    try {
+        for(let i=0; i < nCards; i++) {
+            let sql = `select crd_id from card 
+                   order by random()
+                   limit 1`;
+            let res = await pool.query(sql);
+            let cardId = res.rows[0].crd_id;
+            sql = `insert into deck (deck_pm_id,deck_pos_id,deck_card_id,deck_card_hp) 
+                    values ($1,1,$2,4) returning *`;         
+            await pool.query(sql,[pmId,cardId]);
+        }
+    } catch (err) {
+        console.log(err);
+        return { status: 500, result: err };
+    }
+}
+
+module.exports.createMatch = async function (pId) {
+    try {
+        let res = await this.getPlayerActiveMatches(pId);
+        if (res.result.length > 0)
+            return {status:400, 
+                result:{msg:"You can only have one active match."}}
+        let sql = `insert into match (mt_turn,mt_finished) 
+                    values (1,false) returning *`;
+        res = await pool.query(sql);
+        let matchId = res.rows[0].mt_id;
+        // player starts first
+        sql = `insert into playermatch (pm_player_id,pm_match_id,pm_state_id,pm_hp) 
+               values ($1,$2,1,3) returning *`;         
+        res = await pool.query(sql,[pId,matchId]);
+        let pmId = res.rows[0].pm_id;
+        // Create 3 random cards (with repetition)
+        this.createRandomCards(pmId,3);
+        return { status: 200, result: 
+            {msg: "Match successfully created.", 
+             matchId:matchId, pmId: pmId} };
+    } catch (err) {
+        console.log(err);
+        return { status: 500, result: err };
+    }
+}
+
+module.exports.joinMatch = async function (pId,mId) {
+    try {
+        let res = await this.getPlayerActiveMatches(pId);
+        if (res.result.length > 0)
+            return {status:400, 
+                result:{msg:"You can only have one active match."}}
+        
+        let sql = `select * from playermatch where pm_match_id = $1`;
+        res = await pool.query(sql,[mId]);
+        // since the match always has a player, no player means no match
+        if (res.rows.length == 0) {
+            return {status:400, 
+                result:{msg:"There is no match with that id"}}
+        } else if(res.rows.length > 1) {
+            return {status:400, 
+                result:{msg:"That match is full"}}
+        }
+        let oId = res.rows[0].pm_id;
+        sql = `insert into playermatch (pm_player_id,pm_match_id,pm_state_id,pm_hp) 
+               values ($1,$2,4,3) returning *`;         
+        res = await pool.query(sql,[pId,mId]);
+        let pmId = res.rows[0].pm_id;
+        // Create 2 random cards, you will draw one later
+        this.createRandomCards(pmId,2);
+        return { status: 200, result: {msg: "You successfully joined the match",
+                                        pmId: pmId, oId: oId} };
     } catch (err) {
         console.log(err);
         return { status: 500, result: err };

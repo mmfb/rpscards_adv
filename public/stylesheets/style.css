@@ -6,3 +6,16 @@ body {
 a {
   color: #00B7FF;
 }
+
+#matches {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-around;
+}
+
+#matches section {
+  background-color: crimson;
+  color: white;
+  margin: 5px;
+  padding: 5px;
+}

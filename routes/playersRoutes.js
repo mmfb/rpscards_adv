@@ -40,7 +40,11 @@ router.get('/:pId/playermatches/:pmId/deck', async function(req, res, next) {
   res.status(result.status).send(result.result);
 });
 
-
+router.get('/playermatches/waiting', async function(req, res, next) {
+  console.log("Get player and matches info that are waiting for others");
+  let result = await pModel.getPlayersAndMatchesWaiting();
+  res.status(result.status).send(result.result);
+});
 
 router.get('/playermatches/:id', async function(req, res, next) {
   console.log("Get match info for player ");
@@ -48,6 +52,39 @@ router.get('/playermatches/:id', async function(req, res, next) {
   let result = await pModel.getPlayerMatchInfo(pmId);
   res.status(result.status).send(result.result);
 });
+
+
+router.post('', async function(req, res, next) {
+  console.log("Register player ");
+  let username = req.body.username;
+  let password = req.body.password;
+  let result = await pModel.register(username,password);
+  res.status(result.status).send(result.result);
+});
+
+router.post('/:id/matches', async function(req, res, next) {
+  console.log("Create a new match for player ");
+  let pId = req.params.id;
+  let result = await pModel.createMatch(pId);
+  res.status(result.status).send(result.result);
+});
+
+router.put('/matches/:mId', async function(req, res, next) {
+  console.log("Join a match");
+  let pId = req.body.pId;
+  let mId = req.params.mId;
+  let result = await pModel.joinMatch(pId,mId);
+  res.status(result.status).send(result.result);
+});
+
+// filter by match
+router.get('/playermatches/match/:mId', async function(req, res, next) {
+  console.log("Get players in a match");
+  let mId = req.params.mId;
+  let result = await pModel.getPlayersOfMatch(mId);
+  res.status(result.status).send(result.result);
+});
+
 
 router.post('/login', async function(req, res, next) {
   console.log("Login player ");
@@ -60,7 +97,7 @@ router.post('/login', async function(req, res, next) {
 router.get('/:pId/playermatches', async function(req, res, next) {
   console.log("Get player matches ");
   let pId = req.params.pId;
-  let result = await pModel.getPlayerMatches(pId);
+  let result = await pModel.getPlayerActiveMatches(pId);
   res.status(result.status).send(result.result);
 });
 
